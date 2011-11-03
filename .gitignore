@@ -4,6 +4,16 @@
 obj/
 libs/
 toolchain/
+Makefile
+config.h
+config.status
+config.log
+*.lo
+*.la
+*.lai
+libtool
+stamp-h1
+faac
 # Mac OS X ignores
 .DS_Store
 ._*
