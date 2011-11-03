@@ -2,6 +2,7 @@ Android Video Recorder
 
 A simple library using ffmpeg, libx264, and libfaac to record videos on Android.
 Tested with Android NDK r6b.
+Targeted to armv7-a with vfpv3-d16.
 
 How To Build
 
