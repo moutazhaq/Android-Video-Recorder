@@ -1,0 +1,28 @@
+Android Video Recorder
+
+A simple library using ffmpeg, libx264, and libfaac to record videos on Android.
+Tested with Android NDK r6b.
+
+How To Build
+
+1. Run git submodules init followed by git submodules update to fetch ffmpeg and libx264.
+2. Run /path/to/android/ndk/build/tools/make-standalone-toolchain.sh --install-dir=./toolchain
+3. Edit build.sh and change NDK at the top to point to your NDK directory.
+4. Run the following commands:
+	./build.sh config faac
+	./build.sh compile faac
+	./build.sh config x264
+	./build.sh compile x264
+	./build.sh config ffmpeg
+	./build.sh compile ffmpeg
+	./build.sh compile recorder
+5. You should now have a static library libVideoRecorder.a.
+
+How To Use
+
+Link libVideoRecorder.a into your Android JNI as a prebuilt static library.
+Use the interface given in VideoRecorder.h in your JNI C++ code.
+
+Legal
+
+Use at your own risk, the author is not responsible for anything.

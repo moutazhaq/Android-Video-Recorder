@@ -1,6 +1,6 @@
 [submodule "jni/ffmpeg"]
-	path = jni/ffmpeg
+	path = ffmpeg
 	url = git://git.videolan.org/ffmpeg.git
 [submodule "jni/x264"]
-	path = jni/x264
+	path = x264
 	url = git://git.videolan.org/x264.git
