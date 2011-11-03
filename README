@@ -5,7 +5,7 @@ Tested with Android NDK r6b.
 
 How To Build
 
-1. Run git submodules init followed by git submodules update to fetch ffmpeg and libx264.
+1. Run git submodule init followed by git submodule update to fetch ffmpeg and libx264.
 2. Run /path/to/android/ndk/build/tools/make-standalone-toolchain.sh --install-dir=./toolchain
 3. Edit build.sh and change NDK at the top to point to your NDK directory.
 4. Run the following commands:
