@@ -43,14 +43,14 @@ public:
 	
 	// Return true on success, false on failure
 
-	// Call first
+	// Call these first
+	virtual bool SetVideoOptions(VideoFrameFormat fmt,int width,int height,int fps,unsigned long bitrate)=0;
+	virtual bool SetAudioOptions(AudioSampleFormat fmt,int channels,unsigned long samplerate,unsigned long bitrate)=0;
+
+	// Call after SetVideoOptions/SetAudioOptions
 	virtual bool Open(const char* mp4file,bool hasAudio,bool dbg)=0;
 	// Call last
 	virtual bool Close()=0;
-	
-	// Call SetVideoOptions and SetAudioOptions before calling Start
-	virtual bool SetVideoOptions(VideoFrameFormat fmt,int width,int height,int fps,unsigned long bitrate)=0;
-	virtual bool SetAudioOptions(AudioSampleFormat fmt,unsigned long bitrate)=0;
 
 	// After this succeeds, you can call SupplyVideoFrame and SupplyAudioSamples
 	virtual bool Start()=0;

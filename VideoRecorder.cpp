@@ -17,11 +17,11 @@ public:
 	VideoRecorderImpl();
 	~VideoRecorderImpl();
 	
+	bool SetVideoOptions(VideoFrameFormat fmt,int width,int height,int fps,unsigned long bitrate);
+	bool SetAudioOptions(AudioSampleFormat fmt,int channels,unsigned long samplerate,unsigned long bitrate);
+
 	bool Open(const char* mp4file,bool hasAudio,bool dbg);
 	bool Close();
-	
-	bool SetVideoOptions(VideoFrameFormat fmt,int width,int height,int fps,unsigned long bitrate);
-	bool SetAudioOptions(AudioSampleFormat fmt,unsigned long bitrate);
 	
 	bool Start();
 
@@ -30,7 +30,7 @@ public:
 
 private:
 	bool InitVideoStream(PixelFormat pixfmt,int width,int height,int fps,unsigned long bitrate);
-	bool InitAudioStream(AVSampleFormat fmt,unsigned long bitrate);
+	bool InitAudioStream(AVSampleFormat fmt,int samplesz,int channels,unsigned long samplerate,unsigned long bitrate);
 	
 	AVFormatContext *fc;
 	
@@ -38,11 +38,18 @@ private:
 	AVFrame *frame;
 	uint8_t *video_outbuf;
 	int video_outbuf_size;
+	int video_width,video_height,video_fps;
+	unsigned long video_bitrate;
+	PixelFormat video_pixfmt;
 	
 	AVStream *audio_stream;
 	uint16_t *samples;
 	uint8_t *audio_outbuf;
 	int audio_outbuf_size;
+	int audio_channels;
+	unsigned long audio_bitrate,audio_samplerate;
+	AVSampleFormat audio_sample_format;
+	int audio_sample_size;
 	
 };
 
@@ -75,6 +82,18 @@ bool VideoRecorderImpl::Open(const char* mp4file,bool hasAudio,bool dbg)
 	if(!fc) {
 		LOG("avformat_alloc_output_context2 failed");
 		return false;
+	}
+	
+	if(!InitVideoStream(video_pixfmt,video_width,video_height,video_fps,video_bitrate)) {
+		LOG("InitVideoStream failed");
+		return false;
+	}
+	
+	if(hasAudio) {
+		if(!InitAudioStream(audio_sample_format,audio_sample_size,audio_channels,audio_samplerate,audio_bitrate)) {
+			LOG("InitAudioStream failed");
+			return false;
+		}
 	}
 
 	// open output file
@@ -146,7 +165,7 @@ bool VideoRecorderImpl::InitVideoStream(PixelFormat pixfmt,int width,int height,
 	return true;
 }
 
-bool VideoRecorderImpl::InitAudioStream(AVSampleFormat fmt,unsigned long bitrate)
+bool VideoRecorderImpl::InitAudioStream(AVSampleFormat fmt,int samplesz,int channels,unsigned long samplerate,unsigned long bitrate)
 {
 	audio_stream = av_new_stream(fc, 1);
 	if(!audio_stream) {
@@ -159,10 +178,10 @@ bool VideoRecorderImpl::InitAudioStream(AVSampleFormat fmt,unsigned long bitrate
 	cc = audio_stream->codec;
 	cc->codec_id = CODEC_ID_AAC;
 	cc->codec_type = AVMEDIA_TYPE_AUDIO;
-	cc->sample_fmt = fmt;//AV_SAMPLE_FMT_S16;
+	cc->sample_fmt = fmt;
 	cc->bit_rate = bitrate;
-	cc->sample_rate = 44100;
-	cc->channels = 2;
+	cc->sample_rate = samplerate;
+	cc->channels = channels;
 	
 	AVCodec *codec = avcodec_find_encoder(cc->codec_id);
 	if(!codec) {
@@ -178,18 +197,47 @@ bool VideoRecorderImpl::InitAudioStream(AVSampleFormat fmt,unsigned long bitrate
 	audio_outbuf_size = 10000;
     audio_outbuf = (uint8_t*)av_malloc(audio_outbuf_size);
 
-	samples = (uint16_t*)av_malloc(cc->frame_size * 2 * cc->channels);
+	samples = (uint16_t*)av_malloc(cc->frame_size * samplesz * cc->channels);
 }
 
 bool VideoRecorderImpl::SetVideoOptions(VideoFrameFormat fmt,int width,int height,int fps,unsigned long bitrate)
 {
-	if(!InitVideoStream(PIX_FMT_YUV420P,width,height,fps,bitrate)) return false;
+	switch(fmt) {
+	case VideoFrameFormatYUV420P: video_pixfmt=PIX_FMT_YUV420P; break;
+	case VideoFrameFormatNV12: video_pixfmt=PIX_FMT_NV12; break;
+	case VideoFrameFormatNV21: video_pixfmt=PIX_FMT_NV21; break;
+	case VideoFrameFormatRGB24: video_pixfmt=PIX_FMT_RGB24; break;
+	case VideoFrameFormatBGR24: video_pixfmt=PIX_FMT_BGR24; break;
+	case VideoFrameFormatARGB: video_pixfmt=PIX_FMT_ARGB; break;
+	case VideoFrameFormatRGBA: video_pixfmt=PIX_FMT_RGBA; break;
+	case VideoFrameFormatABGR: video_pixfmt=PIX_FMT_ABGR; break;
+	case VideoFrameFormatBGRA: video_pixfmt=PIX_FMT_BGRA; break;
+	case VideoFrameFormatRGB565LE: video_pixfmt=PIX_FMT_RGB565LE; break;
+	case VideoFrameFormatRGB565BE: video_pixfmt=PIX_FMT_RGB565BE; break;
+	case VideoFrameFormatBGR565LE: video_pixfmt=PIX_FMT_BGR565LE; break;
+	case VideoFrameFormatBGR565BE: video_pixfmt=PIX_FMT_BGR565BE; break;
+	default: LOG("Unknown frame format passed to SetVideoOptions!"); return false;
+	}
+	video_width=width;
+	video_height=height;
+	video_fps=fps;
+	video_bitrate=bitrate;
 	return true;
 }
 
-bool VideoRecorderImpl::SetAudioOptions(AudioSampleFormat fmt,unsigned long bitrate)
+bool VideoRecorderImpl::SetAudioOptions(AudioSampleFormat fmt,int channels,unsigned long samplerate,unsigned long bitrate)
 {
-	if(!InitAudioStream(AV_SAMPLE_FMT_S16,bitrate)) return false;
+	switch(fmt) {
+	case AudioSampleFormatU8: audio_sample_format=AV_SAMPLE_FMT_U8; audio_sample_size=1; break;
+	case AudioSampleFormatS16: audio_sample_format=AV_SAMPLE_FMT_S16; audio_sample_size=2; break;
+	case AudioSampleFormatS32: audio_sample_format=AV_SAMPLE_FMT_S32; audio_sample_size=4; break;
+	case AudioSampleFormatFLT: audio_sample_format=AV_SAMPLE_FMT_FLT; audio_sample_size=4; break;
+	case AudioSampleFormatDBL: audio_sample_format=AV_SAMPLE_FMT_DBL; audio_sample_size=8; break;
+	default: LOG("Unknown sample format passed to SetAudioOptions!"); return false;
+	}
+	audio_channels=channels;
+	audio_bitrate=bitrate;
+	audio_samplerate=samplerate;
 	return true;
 }
 
@@ -214,7 +262,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void* frameData,unsigned long num
 
 void VideoRecorderImpl::SupplyAudioSamples(const void* sampleData,unsigned long numSamples)
 {
-	memcpy(samples, sampleData, numSamples * 2);
+	memcpy(samples, sampleData, numSamples * audio_sample_size);
 	
 	AVPacket pkt;
 	av_init_packet(&pkt);
