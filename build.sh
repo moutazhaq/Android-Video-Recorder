@@ -168,7 +168,7 @@ compile_recorder()
 {
 	echo -e "Compiling recorder"
 	rm -f VideoRecorder.o
-	$CXX $CXXFLAGS -fpic -c VideoRecorder.cpp -o VideoRecorder.o
+	$CXX $CXXFLAGS -D__STDC_CONSTANT_MACROS -Iffmpeg -fpic -c VideoRecorder.cpp -o VideoRecorder.o
 	$AR rs libVideoRecorder.a VideoRecorder.o ffmpeg/libfaac.a ffmpeg/libx264.a ffmpeg/libffmpeg.a
 }
 
