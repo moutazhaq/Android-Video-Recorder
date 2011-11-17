@@ -44,7 +44,7 @@ public:
 	// Return true on success, false on failure
 
 	// Call these first
-	virtual bool SetVideoOptions(VideoFrameFormat fmt,int width,int height,int fps,unsigned long bitrate)=0;
+	virtual bool SetVideoOptions(VideoFrameFormat fmt,int width,int height,unsigned long bitrate)=0;
 	virtual bool SetAudioOptions(AudioSampleFormat fmt,int channels,unsigned long samplerate,unsigned long bitrate)=0;
 
 	// Call after SetVideoOptions/SetAudioOptions
@@ -56,7 +56,7 @@ public:
 	virtual bool Start()=0;
 	
 	// Supply a video frame
-	virtual void SupplyVideoFrame(const void* frame,unsigned long numBytes)=0;
+	virtual void SupplyVideoFrame(const void* frame,unsigned long numBytes,unsigned long timestamp)=0;
 	// Supply audio samples
 	virtual void SupplyAudioSamples(const void* samples,unsigned long numSamples)=0;
 };
