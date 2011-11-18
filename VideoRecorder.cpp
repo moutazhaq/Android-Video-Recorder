@@ -6,7 +6,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,"VideoRecorder",__VA_ARGS__)
 #endif
 
-#ifdef __APPLE__
+#ifdef TESTING
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
 #define LOGE(...) fprintf(stderr, __VA_ARGS__)
 #endif
