@@ -1,4 +1,4 @@
-// compiles on MacOS X with: g++ VideoRecorder.cpp -o v -lavcodec -lavformat -lavutil -lswscale -lx264 -g
+// compiles on MacOS X with: g++ -DTESTING VideoRecorder.cpp -o v -lavcodec -lavformat -lavutil -lswscale -lx264 -g
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -504,7 +504,7 @@ VideoRecorder* VideoRecorder::New()
 
 } // namespace AVR
 
-#ifdef __APPLE__
+#ifdef TESTING
 
 float t = 0;
 float tincr = 2 * M_PI * 110.0 / 44100;
@@ -601,4 +601,4 @@ int main()
 	return 0;
 }
 
-#endif
+#endif /* TESTING */
