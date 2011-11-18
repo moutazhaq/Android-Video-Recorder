@@ -1,7 +1,15 @@
 // compiles on MacOS X with: g++ VideoRecorder.cpp -o v -lavcodec -lavformat -lavutil -lswscale -lx264 -g
-//#include <android/log.h>
+
+#ifdef ANDROID
+#include <android/log.h>
+#define LOG(...) __android_log_print(ANDROID_LOG_INFO,"VideoRecorder",__VA_ARGS__)
+#endif
+
+#ifdef __APPLE__
+#define LOG(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 #include "VideoRecorder.h"
-#include <iostream>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -9,9 +17,6 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-// Use LOG() macro to output debug statements if dbg==true in Open()
-//#define LOG(...) __android_log_print(ANDROID_LOG_INFO,"VideoRecorder",__VA_ARGS__)
-#define LOG(...) printf(__VA_ARGS__)
 // Do not use C++ exceptions, templates, or RTTI
 
 namespace AVR {
@@ -106,16 +111,20 @@ bool VideoRecorderImpl::Open(const char *mp4file, bool hasAudio, bool dbg)
 	}
 	
 	video_st = add_video_stream(CODEC_ID_H264);
-	audio_st = add_audio_stream(CODEC_ID_AAC);
+	
+	if(hasAudio)
+		audio_st = add_audio_stream(CODEC_ID_AAC);
 	
 	if(dbg)
 		av_dump_format(oc, 0, mp4file, 1);
 	
 	open_video();
-	open_audio();
+	
+	if(hasAudio)
+		open_audio();
 	
 	if (avio_open(&oc->pb, mp4file, AVIO_FLAG_WRITE) < 0) {
-		fprintf(stderr, "Could not open '%s'\n", mp4file);
+		LOG("Could not open '%s'\n", mp4file);
 		exit(1);
 	}
 	
@@ -129,7 +138,7 @@ AVStream *VideoRecorderImpl::add_audio_stream(enum CodecID codec_id)
 
 	st = av_new_stream(oc, 1);
 	if (!st) {
-		fprintf(stderr, "Could not alloc stream\n");
+		LOG("Could not alloc stream\n");
 		exit(1);
 	}
 
@@ -157,12 +166,12 @@ void VideoRecorderImpl::open_audio()
 
 	codec = avcodec_find_encoder(c->codec_id);
 	if (!codec) {
-		fprintf(stderr, "audio codec not found\n");
+		LOG("audio codec not found\n");
 		exit(1);
 	}
 
 	if (avcodec_open(c, codec) < 0) {
-		fprintf(stderr, "could not open audio codec\n");
+		LOG("could not open audio codec\n");
 		exit(1);
 	}
 
@@ -182,7 +191,7 @@ AVStream *VideoRecorderImpl::add_video_stream(enum CodecID codec_id)
 
 	st = avformat_new_stream(oc, NULL);
 	if (!st) {
-		fprintf(stderr, "Could not alloc stream\n");
+		LOG("Could not alloc stream\n");
 		exit(1);
 	}
 
@@ -265,12 +274,12 @@ void VideoRecorderImpl::open_video()
 
 	codec = avcodec_find_encoder(c->codec_id);
 	if (!codec) {
-		fprintf(stderr, "codec not found\n");
+		LOG("codec not found\n");
 		exit(1);
 	}
 
 	if (avcodec_open(c, codec) < 0) {
-		fprintf(stderr, "could not open codec\n");
+		LOG("could not open codec\n");
 		exit(1);
 	}
 
@@ -283,19 +292,19 @@ void VideoRecorderImpl::open_video()
 	// the AVFrame the YUV frame is stored after conversion
 	picture = alloc_picture(c->pix_fmt, c->width, c->height);
 	if (!picture) {
-		fprintf(stderr, "Could not allocate picture\n");
+		LOG("Could not allocate picture\n");
 		exit(1);
 	}
 
 	// the src AVFrame before conversion
 	tmp_picture = alloc_picture(video_pixfmt, c->width, c->height);
 	if (!tmp_picture) {
-		fprintf(stderr, "Could not allocate temporary picture\n");
+		LOG("Could not allocate temporary picture\n");
 		exit(1);
 	}
 	
 	if(video_pixfmt != PIX_FMT_RGB565LE) {
-		fprintf(stderr, "We've hardcoded linesize in tmp_picture for PIX_FMT_RGB565LE only!!");
+		LOG("We've hardcoded linesize in tmp_picture for PIX_FMT_RGB565LE only!!");
 		exit(1);
 	}
 	tmp_picture->linesize[0] = c->width * 2;	// fix the linesize for tmp_picture (assuming RGB565)
@@ -307,6 +316,7 @@ bool VideoRecorderImpl::Close()
 	av_write_trailer(oc);
 	
 	avcodec_close(video_st->codec);
+	
 	av_free(picture->data[0]);
 	av_free(picture);
 	
@@ -314,9 +324,15 @@ bool VideoRecorderImpl::Close()
 	av_free(tmp_picture);
 	
 	av_free(video_outbuf);
-	avcodec_close(audio_st->codec);
-	av_free(samples);
-	av_free(audio_outbuf);
+	
+	if(audio_st)
+		avcodec_close(audio_st->codec);
+		
+	if(samples)
+		av_free(samples);
+		
+	if(audio_outbuf)
+		av_free(audio_outbuf);
 	
 	for(int i = 0; i < oc->nb_streams; i++) {
 		av_freep(&oc->streams[i]->codec);
@@ -375,6 +391,10 @@ bool VideoRecorderImpl::Start()
 
 void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long numSamples)
 {
+	// check whether there is any audio stream (hasAudio=true)
+	if(audio_st == NULL)
+		return;
+		
 	AVCodecContext *c = audio_st->codec;
 
 	uint8_t *samplePtr = (uint8_t *)sampleData;		// using a byte pointer
@@ -405,7 +425,7 @@ void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long
 				pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, audio_st->time_base);
 
 			if(av_interleaved_write_frame(oc, &pkt) != 0) {
-				fprintf(stderr, "Error while writing audio frame\n");
+				LOG("Error while writing audio frame\n");
 				exit(1);
 			}
 		}
@@ -440,7 +460,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 			// convert whatever our current format is to YUV420P which x264 likes
 			img_convert_ctx = sws_getContext(video_width, video_height, video_pixfmt, c->width, c->height, PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
 			if(img_convert_ctx == NULL) {
-				fprintf(stderr, "Cannot initialize the conversion context\n");
+				LOG("Cannot initialize the conversion context\n");
 				exit(1);
 			}
 		}
@@ -471,7 +491,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 		pkt.size = out_size;
 		
 		if(av_interleaved_write_frame(oc, &pkt) != 0) {
-			fprintf(stderr, "Unable to write video frame");
+			LOG("Unable to write video frame");
 			exit(1);
 		}
 	}
@@ -483,6 +503,8 @@ VideoRecorder* VideoRecorder::New()
 }
 
 } // namespace AVR
+
+#ifdef __APPLE__
 
 float t = 0;
 float tincr = 2 * M_PI * 110.0 / 44100;
@@ -547,13 +569,15 @@ void fill_rgb_image(uint8_t *pixels, int i, int width, int height)
 	}
 }
 
+#include <iostream>
+
 int main()
 {
 	AVR::VideoRecorder *recorder = new AVR::VideoRecorderImpl();
 
 	recorder->SetAudioOptions(AVR::AudioSampleFormatS16, 2, 44100, 64000);
 	recorder->SetVideoOptions(AVR::VideoFrameFormatRGB565LE, 640, 480, 400000);
-	recorder->Open("testing.mp4", true, true);
+	recorder->Open("testing.mp4", false, true);
 
 	int16_t *sound_buffer = new int16_t[2048 * 2];
 	uint8_t *video_buffer = new uint8_t[640 * 480 * 2];
@@ -570,9 +594,11 @@ int main()
 
 	recorder->Close();
 
-	std::cout << "Sup" << std::endl;
+	std::cout << "Done" << std::endl;
 
 	delete recorder;
 	
 	return 0;
 }
+
+#endif
