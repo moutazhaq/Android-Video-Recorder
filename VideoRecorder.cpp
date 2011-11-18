@@ -3,10 +3,12 @@
 #ifdef ANDROID
 #include <android/log.h>
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO,"VideoRecorder",__VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,"VideoRecorder",__VA_ARGS__)
 #endif
 
 #ifdef __APPLE__
 #define LOG(...) fprintf(stderr, __VA_ARGS__)
+#define LOGE(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
 #include "VideoRecorder.h"
@@ -106,7 +108,7 @@ bool VideoRecorderImpl::Open(const char *mp4file, bool hasAudio, bool dbg)
 	
 	avformat_alloc_output_context2(&oc, NULL, NULL, mp4file);
 	if (!oc) {
-		printf("Could not deduce output format from file extension\n");
+		LOGE("could not deduce output format from file extension\n");
 		return false;
 	}
 	
@@ -124,11 +126,13 @@ bool VideoRecorderImpl::Open(const char *mp4file, bool hasAudio, bool dbg)
 		open_audio();
 	
 	if (avio_open(&oc->pb, mp4file, AVIO_FLAG_WRITE) < 0) {
-		LOG("Could not open '%s'\n", mp4file);
-		exit(1);
+		LOGE("could not open '%s'\n", mp4file);
+		return false;
 	}
 	
 	av_write_header(oc);
+	
+	return true;
 }
 
 AVStream *VideoRecorderImpl::add_audio_stream(enum CodecID codec_id)
@@ -138,8 +142,8 @@ AVStream *VideoRecorderImpl::add_audio_stream(enum CodecID codec_id)
 
 	st = av_new_stream(oc, 1);
 	if (!st) {
-		LOG("Could not alloc stream\n");
-		exit(1);
+		LOGE("could not alloc stream\n");
+		return NULL;
 	}
 
 	c = st->codec;
@@ -166,16 +170,16 @@ void VideoRecorderImpl::open_audio()
 
 	codec = avcodec_find_encoder(c->codec_id);
 	if (!codec) {
-		LOG("audio codec not found\n");
-		exit(1);
+		LOGE("audio codec not found\n");
+		return;
 	}
 
 	if (avcodec_open(c, codec) < 0) {
-		LOG("could not open audio codec\n");
-		exit(1);
+		LOGE("could not open audio codec\n");
+		return;
 	}
 
-	audio_outbuf_size = 10000;
+	audio_outbuf_size = 10000; // XXX TODO
 	audio_outbuf = (uint8_t *)av_malloc(audio_outbuf_size);
 
 	audio_input_frame_size = c->frame_size;
@@ -191,8 +195,8 @@ AVStream *VideoRecorderImpl::add_video_stream(enum CodecID codec_id)
 
 	st = avformat_new_stream(oc, NULL);
 	if (!st) {
-		LOG("Could not alloc stream\n");
-		exit(1);
+		LOGE("could not alloc stream\n");
+		return NULL;
 	}
 
 	c = st->codec;
@@ -250,12 +254,16 @@ AVFrame *VideoRecorderImpl::alloc_picture(enum PixelFormat pix_fmt, int width, i
 	int size;
 
 	pict = avcodec_alloc_frame();
-	if (!pict)
+	if (!pict) {
+		LOGE("could not allocate picture frame\n");
 		return NULL;
+	}
+	
 	size = avpicture_get_size(pix_fmt, width, height);
 	picture_buf = (uint8_t *)av_malloc(size);
 	if (!picture_buf) {
 		av_free(pict);
+		LOGE("could not allocate picture frame buf\n");
 		return NULL;
 	}
 	avpicture_fill((AVPicture *)pict, picture_buf,
@@ -270,42 +278,51 @@ void VideoRecorderImpl::open_video()
 
 	timestamp_base = 0;
 	
+	if(!video_st) {
+		LOGE("tried to open_video without a valid video_st (add_video_stream must have failed)\n");
+		return;
+	}
+	
 	c = video_st->codec;
 
 	codec = avcodec_find_encoder(c->codec_id);
 	if (!codec) {
-		LOG("codec not found\n");
-		exit(1);
+		LOGE("codec not found\n");
+		return;
 	}
 
 	if (avcodec_open(c, codec) < 0) {
-		LOG("could not open codec\n");
-		exit(1);
+		LOGE("could not open codec\n");
+		return;
 	}
 
 	video_outbuf = NULL;
 	if (!(oc->oformat->flags & AVFMT_RAWPICTURE)) {
 		video_outbuf_size = 200000; // XXX TODO ???
 		video_outbuf = (uint8_t *)av_malloc(video_outbuf_size);
+		if(!video_outbuf) {
+			LOGE("could not allocate video_outbuf\n");
+			return;
+		}
 	}
 
 	// the AVFrame the YUV frame is stored after conversion
 	picture = alloc_picture(c->pix_fmt, c->width, c->height);
 	if (!picture) {
-		LOG("Could not allocate picture\n");
-		exit(1);
+		LOGE("Could not allocate picture\n");
+		return;
 	}
 
 	// the src AVFrame before conversion
 	tmp_picture = alloc_picture(video_pixfmt, c->width, c->height);
 	if (!tmp_picture) {
-		LOG("Could not allocate temporary picture\n");
-		exit(1);
+		LOGE("Could not allocate temporary picture\n");
+		return;
 	}
 	
 	if(video_pixfmt != PIX_FMT_RGB565LE) {
-		LOG("We've hardcoded linesize in tmp_picture for PIX_FMT_RGB565LE only!!");
-		exit(1);
+		LOGE("We've hardcoded linesize in tmp_picture for PIX_FMT_RGB565LE only!!\n");
+		return;
 	}
 	tmp_picture->linesize[0] = c->width * 2;	// fix the linesize for tmp_picture (assuming RGB565)
 	
@@ -313,17 +330,24 @@ void VideoRecorderImpl::open_video()
 
 bool VideoRecorderImpl::Close()
 {
-	av_write_trailer(oc);
+	if(oc)
+		av_write_trailer(oc);
 	
-	avcodec_close(video_st->codec);
+	if(video_st)
+		avcodec_close(video_st->codec);
 	
-	av_free(picture->data[0]);
-	av_free(picture);
+	if(picture) {
+		av_free(picture->data[0]);
+		av_free(picture);
+	}
 	
-	av_free(tmp_picture->data[0]);
-	av_free(tmp_picture);
+	if(tmp_picture) {
+		av_free(tmp_picture->data[0]);
+		av_free(tmp_picture);
+	}
 	
-	av_free(video_outbuf);
+	if(video_outbuf)
+		av_free(video_outbuf);
 	
 	if(audio_st)
 		avcodec_close(audio_st->codec);
@@ -334,13 +358,14 @@ bool VideoRecorderImpl::Close()
 	if(audio_outbuf)
 		av_free(audio_outbuf);
 	
-	for(int i = 0; i < oc->nb_streams; i++) {
-		av_freep(&oc->streams[i]->codec);
-		av_freep(&oc->streams[i]);
+	if(oc) {
+		for(int i = 0; i < oc->nb_streams; i++) {
+			av_freep(&oc->streams[i]->codec);
+			av_freep(&oc->streams[i]);
+		}
+		avio_close(oc->pb);
+		av_free(oc);
 	}
-	
-	avio_close(oc->pb);
-	av_free(oc);
 }
 
 
@@ -360,7 +385,7 @@ bool VideoRecorderImpl::SetVideoOptions(VideoFrameFormat fmt, int width, int hei
 		case VideoFrameFormatRGB565BE: video_pixfmt=PIX_FMT_RGB565BE; break;
 		case VideoFrameFormatBGR565LE: video_pixfmt=PIX_FMT_BGR565LE; break;
 		case VideoFrameFormatBGR565BE: video_pixfmt=PIX_FMT_BGR565BE; break;
-		default: LOG("Unknown frame format passed to SetVideoOptions!"); return false;
+		default: LOGE("Unknown frame format passed to SetVideoOptions!\n"); return false;
 	}
 	video_width = width;
 	video_height = height;
@@ -376,7 +401,7 @@ bool VideoRecorderImpl::SetAudioOptions(AudioSampleFormat fmt, int channels, uns
 		case AudioSampleFormatS32: audio_sample_format=AV_SAMPLE_FMT_S32; audio_sample_size=4; break;
 		case AudioSampleFormatFLT: audio_sample_format=AV_SAMPLE_FMT_FLT; audio_sample_size=4; break;
 		case AudioSampleFormatDBL: audio_sample_format=AV_SAMPLE_FMT_DBL; audio_sample_size=8; break;
-		default: LOG("Unknown sample format passed to SetAudioOptions!"); return false;
+		default: LOGE("Unknown sample format passed to SetAudioOptions!\n"); return false;
 	}
 	audio_channels = channels;
 	audio_bit_rate = bitrate;
@@ -392,8 +417,10 @@ bool VideoRecorderImpl::Start()
 void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long numSamples)
 {
 	// check whether there is any audio stream (hasAudio=true)
-	if(audio_st == NULL)
+	if(audio_st == NULL) {
+		LOGE("tried to supply an audio frame when no audio stream was present\n");
 		return;
+	}
 		
 	AVCodecContext *c = audio_st->codec;
 
@@ -425,8 +452,8 @@ void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long
 				pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, audio_st->time_base);
 
 			if(av_interleaved_write_frame(oc, &pkt) != 0) {
-				LOG("Error while writing audio frame\n");
-				exit(1);
+				LOGE("Error while writing audio frame\n");
+				return;
 			}
 		}
 		else {
@@ -445,6 +472,11 @@ void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long
 
 void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long numBytes, unsigned long timestamp)
 {
+	if(!video_st) {
+		LOGE("tried to SupplyVideoFrame when no video stream was present\n");
+		return;
+	}
+
 	AVCodecContext *c = video_st->codec;
 	
 	memcpy(tmp_picture->data[0], frameData, numBytes);
@@ -460,8 +492,8 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 			// convert whatever our current format is to YUV420P which x264 likes
 			img_convert_ctx = sws_getContext(video_width, video_height, video_pixfmt, c->width, c->height, PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
 			if(img_convert_ctx == NULL) {
-				LOG("Cannot initialize the conversion context\n");
-				exit(1);
+				LOGE("Cannot initialize the conversion context\n");
+				return;
 			}
 		}
 
@@ -491,8 +523,8 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 		pkt.size = out_size;
 		
 		if(av_interleaved_write_frame(oc, &pkt) != 0) {
-			LOG("Unable to write video frame");
-			exit(1);
+			LOGE("Unable to write video frame\n");
+			return;
 		}
 	}
 }
