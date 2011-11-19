@@ -94,7 +94,19 @@ VideoRecorder::~VideoRecorder()
 
 VideoRecorderImpl::VideoRecorderImpl()
 {
-	
+	samples = NULL;
+	audio_outbuf = NULL;
+	audio_st = NULL;
+
+	audio_input_leftover_samples = 0;
+
+	video_outbuf = NULL;
+	video_st = NULL;
+
+	picture = NULL;
+	tmp_picture = NULL;
+
+	oc = NULL;
 }
 
 VideoRecorderImpl::~VideoRecorderImpl()
@@ -367,7 +379,6 @@ bool VideoRecorderImpl::Close()
 		av_free(oc);
 	}
 }
-
 
 bool VideoRecorderImpl::SetVideoOptions(VideoFrameFormat fmt, int width, int height, unsigned long bitrate)
 {
