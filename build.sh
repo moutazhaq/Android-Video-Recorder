@@ -160,8 +160,17 @@ compile_ffmpeg()
 	make clean
 	make
 	$AR d libavcodec/libavcodec.a inverse.o
-	$AR r libffmpeg.a libavcodec/libavcodec.a libavformat/libavformat.a libavutil/libavutil.a libswresample/libswresample.a libswscale/libswscale.a
+	mkdir tempobjs
+	pushd tempobjs
+	$LD -r --whole-archive ../libavcodec/libavcodec.a -o avcodec.o
+	$LD -r --whole-archive ../libavformat/libavformat.a -o avformat.o
+	$LD -r --whole-archive ../libavutil/libavutil.a -o avutil.o
+	$LD -r --whole-archive ../libswresample/libswresample.a -o swresample.o
+	$LD -r --whole-archive ../libswscale/libswscale.a -o swscale.o
+	rm -rf ../libffmpeg.a
+	$AR r ../libffmpeg.a *.o
 	popd
+	rm -rf tempobjs
 }
 
 compile_recorder()
@@ -169,7 +178,15 @@ compile_recorder()
 	echo -e "Compiling recorder"
 	rm -f VideoRecorder.o
 	$CXX $CXXFLAGS -D__STDC_CONSTANT_MACROS -Iffmpeg -fpic -c VideoRecorder.cpp -o VideoRecorder.o
-	$AR rs libVideoRecorder.a VideoRecorder.o ffmpeg/libfaac.a ffmpeg/libx264.a ffmpeg/libffmpeg.a
+	mkdir tempobjs
+	pushd tempobjs
+	$LD -r --whole-archive ../ffmpeg/libfaac.a -o faac.o
+	$LD -r --whole-archive ../ffmpeg/libx264.a -o x264.o
+	$LD -r --whole-archive ../ffmpeg/libffmpeg.a -o ffmpeg.o
+	rm -rf ../libVideoRecorder.a
+	$AR crsv ../libVideoRecorder.a *.o ../VideoRecorder.o
+	popd
+	rm -rf tempobjs
 }
 
 compile()
