@@ -14,6 +14,8 @@ config.log
 libtool
 stamp-h1
 faac
+x264
+ffmpeg
 # Mac OS X ignores
 .DS_Store
 ._*
