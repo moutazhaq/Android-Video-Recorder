@@ -177,7 +177,7 @@ compile_recorder()
 {
 	echo -e "Compiling recorder"
 	rm -f VideoRecorder.o
-	$CXX $CXXFLAGS -D__STDC_CONSTANT_MACROS -Iffmpeg -fpic -c VideoRecorder.cpp -o VideoRecorder.o
+	$CXX $CXXFLAGS -O2 -D__STDC_CONSTANT_MACROS -Iffmpeg -fpic -c VideoRecorder.cpp -o VideoRecorder.o
 	mkdir tempobjs
 	pushd tempobjs
 	$LD -r --whole-archive ../ffmpeg/libfaac.a -o faac.o

@@ -75,6 +75,7 @@ private:
 	PixelFormat video_pixfmt;
 	AVFrame *picture;			// video frame after being converted to x264-friendly YUV420P
 	AVFrame *tmp_picture;		// video frame before conversion (RGB565)
+	SwsContext *img_convert_ctx;
 	
 	unsigned long timestamp_base;
 	
@@ -105,6 +106,7 @@ VideoRecorderImpl::VideoRecorderImpl()
 
 	picture = NULL;
 	tmp_picture = NULL;
+	img_convert_ctx = NULL;
 
 	oc = NULL;
 }
@@ -224,7 +226,7 @@ AVStream *VideoRecorderImpl::add_video_stream(enum CodecID codec_id)
 	c->pix_fmt = PIX_FMT_YUV420P;		// we convert everything to PIX_FMT_YUV420P
 
 	/* h264 specific stuff */
-	c->coder_type = 0;	// coder = 1
+/*	c->coder_type = 0;	// coder = 0
 	c->me_cmp |= 1;	// cmp=+chroma, where CHROMA = 1
 	c->partitions |= X264_PART_I8X8 + X264_PART_I4X4 + X264_PART_P8X8 + X264_PART_B8X8; // partitions=+parti8x8+parti4x4+partp8x8+partb8x8
 	c->me_method = ME_HEX;	// me_method=hex
@@ -239,7 +241,7 @@ AVStream *VideoRecorderImpl::add_video_stream(enum CodecID codec_id)
 	c->qmin = 10;	// qmin=10
 	c->qmax = 51;	// qmax=51
 	c->max_qdiff = 4;	// qdiff=4
-	c->max_b_frames = 0;	// bf=3
+	c->max_b_frames = 0;	// bf=0
 	c->refs = 3;	// refs=3
 	c->directpred = 1;	// directpred=1
 	c->trellis = 1; // trellis=1
@@ -248,10 +250,43 @@ AVStream *VideoRecorderImpl::add_video_stream(enum CodecID codec_id)
 	c->flags |= CODEC_FLAG_LOOP_FILTER + CODEC_FLAG_GLOBAL_HEADER;
 	c->flags2 |= CODEC_FLAG2_BPYRAMID + CODEC_FLAG2_MIXED_REFS + CODEC_FLAG2_WPRED + CODEC_FLAG2_8X8DCT + CODEC_FLAG2_FASTPSKIP;	// flags2=+bpyramid+mixed_refs+wpred+dct8x8+fastpskip
 	c->flags2 |= CODEC_FLAG2_8X8DCT;
-	c->flags2 ^= CODEC_FLAG2_8X8DCT;
+	c->flags2 ^= CODEC_FLAG2_8X8DCT;*/
+	
+	/*x264 ultrafast preset*/
+	c->aq_mode = 0; // aq-mode = 0
+	// b-adapt = 0
+	c->max_b_frames = 0; // bframes = 0
+	// no cabac
+	// no deblock
+	c->me_method = ME_HEX; // me = dia !!!
+	c->partitions = 0; // partitions = none
+	c->rc_lookahead = 0; // rc-lookahead = 0
+	c->refs = 1; // ref = 1
+	// scenecut = 0
+	c->scenechange_threshold = 40;
+	// subme = 0
+	c->trellis = 0; // trellis = 0
+	c->weighted_p_pred = 0; // weightp = 0 ??
+	c->coder_type = 0;
+	c->me_subpel_quality = 4;
+	c->me_range = 16;
+	c->gop_size = 250;
+	c->keyint_min = 25;
+	c->i_quant_factor = 0.71;
+	c->b_frame_strategy = 0;
+	c->qcompress = 0.6;
+	c->qmin = 10;
+	c->qmax = 51;
+	c->max_qdiff = 4;
+	c->directpred = 0;
+	c->flags |= CODEC_FLAG_LOOP_FILTER + CODEC_FLAG_GLOBAL_HEADER;
+	c->flags2 |= CODEC_FLAG2_8X8DCT; c->flags2 ^= CODEC_FLAG2_8X8DCT; // no 8x8dct
+	c->flags2 |= CODEC_FLAG2_MIXED_REFS; c->flags2 ^= CODEC_FLAG2_MIXED_REFS; // no mixed refs
+	c->flags2 |= CODEC_FLAG2_MBTREE; c->flags2 ^= CODEC_FLAG2_MBTREE; // no mbtree
+	c->flags2 |= CODEC_FLAG2_WPRED; c->flags2 ^= CODEC_FLAG2_WPRED; // no weightb ??
 
 	c->profile = FF_PROFILE_H264_BASELINE;
-	c->level = 30;
+	//c->level = 30;
 
 	if (oc->oformat->flags & AVFMT_GLOBALHEADER)
 		c->flags |= CODEC_FLAG_GLOBAL_HEADER;
@@ -310,7 +345,7 @@ void VideoRecorderImpl::open_video()
 
 	video_outbuf = NULL;
 	if (!(oc->oformat->flags & AVFMT_RAWPICTURE)) {
-		video_outbuf_size = 200000; // XXX TODO ???
+		video_outbuf_size = c->width * c->height * 4; // We assume the encoded frame will be smaller in size than an equivalent raw frame in RGBA8888 format ... a pretty safe assumption!
 		video_outbuf = (uint8_t *)av_malloc(video_outbuf_size);
 		if(!video_outbuf) {
 			LOGE("could not allocate video_outbuf\n");
@@ -326,8 +361,16 @@ void VideoRecorderImpl::open_video()
 	}
 
 	// the src AVFrame before conversion
-	tmp_picture = alloc_picture(video_pixfmt, c->width, c->height);
+	/*tmp_picture = alloc_picture(video_pixfmt, c->width, c->height);
 	if (!tmp_picture) {
+		LOGE("Could not allocate temporary picture\n");
+		return;
+	}*/
+	// Instead of allocating the video frame buffer and attaching it tmp_picture, thereby incurring an unnecessary memcpy() in SupplyVideoFrame,
+	// we only allocate the tmp_picture structure and set it up with default values. tmp_picture->data[0] is then reassigned to the incoming
+	// frame data on the SupplyVideoFrame() call.
+	tmp_picture = avcodec_alloc_frame();
+	if(!tmp_picture) {
 		LOGE("Could not allocate temporary picture\n");
 		return;
 	}
@@ -338,6 +381,11 @@ void VideoRecorderImpl::open_video()
 	}
 	tmp_picture->linesize[0] = c->width * 2;	// fix the linesize for tmp_picture (assuming RGB565)
 	
+	img_convert_ctx = sws_getContext(video_width, video_height, video_pixfmt, c->width, c->height, PIX_FMT_YUV420P, /*SWS_BICUBIC*/SWS_FAST_BILINEAR, NULL, NULL, NULL);
+	if(img_convert_ctx==NULL) {
+		LOGE("Could not initialize sws context\n");
+		return;
+	}
 }
 
 bool VideoRecorderImpl::Close()
@@ -354,8 +402,13 @@ bool VideoRecorderImpl::Close()
 	}
 	
 	if(tmp_picture) {
-		av_free(tmp_picture->data[0]);
+		// tmp_picture->data[0] is no longer allocated by us
+		//av_free(tmp_picture->data[0]);
 		av_free(tmp_picture);
+	}
+	
+	if(img_convert_ctx) {
+		sws_freeContext(img_convert_ctx);
 	}
 	
 	if(video_outbuf)
@@ -440,7 +493,7 @@ void VideoRecorderImpl::SupplyAudioSamples(const void *sampleData, unsigned long
 	// numSamples is supplied by the codec.. should be c->frame_size (1024 for AAC)
 	// if it's more we go through it c->frame_size samples at a time
 	while(numSamples) {
-		AVPacket pkt;
+		static AVPacket pkt;
 		av_init_packet(&pkt);	// need to init packet every time so all the values (such as pts) are re-initialized
 		
 		// if we have enough samples for a frame, we write out c->frame_size number of samples (ie: one frame) to the output context
@@ -490,7 +543,9 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 
 	AVCodecContext *c = video_st->codec;
 	
-	memcpy(tmp_picture->data[0], frameData, numBytes);
+	//memcpy(tmp_picture->data[0], frameData, numBytes);
+	// Don't copy the frame unnecessarily! Simply point tmp_picture->data[0] to the incoming frame
+	tmp_picture->data[0]=(uint8_t*)frameData;
 	
 	// if the input pixel format is not YUV420P, we'll assume
 	// it's stored in tmp_picture, so we'll convert it to YUV420P
@@ -498,19 +553,9 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 	// if it's already in YUV420P format we'll assume it's stored in
 	// "picture" from before
 	if(video_pixfmt != PIX_FMT_YUV420P) {
-		static struct SwsContext *img_convert_ctx;
-		if (img_convert_ctx == NULL) {
-			// convert whatever our current format is to YUV420P which x264 likes
-			img_convert_ctx = sws_getContext(video_width, video_height, video_pixfmt, c->width, c->height, PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
-			if(img_convert_ctx == NULL) {
-				LOGE("Cannot initialize the conversion context\n");
-				return;
-			}
-		}
-
 		sws_scale(img_convert_ctx, tmp_picture->data, tmp_picture->linesize, 0, video_height, picture->data, picture->linesize);
 	}
-
+	
 	if(timestamp_base == 0)
 		timestamp_base = timestamp;
 	
@@ -519,7 +564,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 	int out_size = avcodec_encode_video(c, video_outbuf, video_outbuf_size, picture);
 	
 	if(out_size > 0) {
-		AVPacket pkt;
+		static AVPacket pkt;
 		
 		av_init_packet(&pkt);
 		
