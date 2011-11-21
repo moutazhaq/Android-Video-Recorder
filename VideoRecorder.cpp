@@ -390,8 +390,34 @@ void VideoRecorderImpl::open_video()
 
 bool VideoRecorderImpl::Close()
 {
-	if(oc)
+	if(oc) {
+		// flush out delayed frames
+		AVPacket pkt;
+		int out_size;
+		AVCodecContext *c = video_st->codec;
+		
+		while(out_size = avcodec_encode_video(c, video_outbuf, video_outbuf_size, NULL)) {
+			av_init_packet(&pkt);
+		
+			if (c->coded_frame->pts != AV_NOPTS_VALUE)
+				pkt.pts = av_rescale_q(c->coded_frame->pts, c->time_base, video_st->time_base);
+		
+			pkt.flags |= AV_PKT_FLAG_KEY;
+			pkt.stream_index = video_st->index;
+			pkt.data = video_outbuf;
+			pkt.size = out_size;
+		
+			if(av_interleaved_write_frame(oc, &pkt) != 0) {
+				LOGE("Unable to write video frame when flushing delayed frames\n");
+				return false;
+			}
+			else {
+				LOG("wrote delayed frame of size %d\n", out_size);
+			}
+		}
+		
 		av_write_trailer(oc);
+	}
 	
 	if(video_st)
 		avcodec_close(video_st->codec);
@@ -562,6 +588,7 @@ void VideoRecorderImpl::SupplyVideoFrame(const void *frameData, unsigned long nu
 	picture->pts = 90 * (timestamp - timestamp_base);	// assuming millisecond timestamp and 90 kHz timebase
 	
 	int out_size = avcodec_encode_video(c, video_outbuf, video_outbuf_size, picture);
+	LOG("avcodec_encode_video returned %d\n", out_size);
 	
 	if(out_size > 0) {
 		static AVPacket pkt;
@@ -665,7 +692,7 @@ int main()
 
 	recorder->SetAudioOptions(AVR::AudioSampleFormatS16, 2, 44100, 64000);
 	recorder->SetVideoOptions(AVR::VideoFrameFormatRGB565LE, 640, 480, 400000);
-	recorder->Open("testing.mp4", false, true);
+	recorder->Open("testing.mp4", true, true);
 
 	int16_t *sound_buffer = new int16_t[2048 * 2];
 	uint8_t *video_buffer = new uint8_t[640 * 480 * 2];
